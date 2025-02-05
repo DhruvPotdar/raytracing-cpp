@@ -4,6 +4,7 @@
 #include "color.h"
 #include "hittable.h"
 #include "interval.h"
+#include "material.h"
 #include "ray.h"
 #include "vec3.h"
 #include <iostream>
@@ -92,12 +93,18 @@ private:
     hit_record rec;
 
     if (world.hit(r, interval(0.001, infinity), rec)) {
-      vec3 direction = rec.normal + random_unit_vector();
-      return 0.5 * ray_color(ray(rec.p, direction), depth - 1, world);
+      ray scattered;
+      color attenuation;
+
+      if (rec.mat->scatter(r, rec, attenuation, scattered)) {
+        return attenuation * ray_color(scattered, depth - 1, world);
+      }
+      return color(0, 0, 0);
     }
 
     vec3 unit_direction = unit_vector(r.direction());
     auto a = 0.5 * (unit_direction.y() + 1.0);
+    // Adding the sky gradient as well
     return (1.0 - a) * color(1.0, 1.0, 1.0) + a * color(0.5, 0.7, 1.0);
   }
   vec3 sample_square() const {
