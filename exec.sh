@@ -35,6 +35,6 @@ echo " Build successful! Running RayTracer..."
 echo "==================================="
 
 # Run the program
-./raytracer >image.png
+./raytracer >"$1".png
 
-feh ./image.png
+feh ./"$1".png

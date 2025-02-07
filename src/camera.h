@@ -8,6 +8,7 @@
 #include "material.h"
 #include "ray.h"
 #include "vec3.h"
+#include <cstdlib>
 #include <iostream>
 
 class camera {
@@ -97,6 +98,7 @@ private:
     defocus_disk_u = u * defocus_radius;
     defocus_disk_v = v * defocus_radius;
   }
+
   ray get_ray(int i, int j) {
     // Construct a camera ray from the defocus disk and directed at a randomly
     // sampled point in the pixel location i, j
@@ -105,10 +107,10 @@ private:
     auto pixel_sample = pixel00_loc + ((j + offset.x()) * pixel_delta_v) +
                         ((i + offset.y()) * pixel_delta_u);
     auto ray_origin = (defocus_angle <= 0) ? center : defocus_disk_sample();
-
     auto ray_direciton = pixel_sample - ray_origin;
+    auto ray_time = random_double();
 
-    return ray(ray_origin, ray_direciton);
+    return ray(ray_origin, ray_direciton, ray_time);
   }
 
   color ray_color(const ray &r, int depth, const hittable &world) const {
