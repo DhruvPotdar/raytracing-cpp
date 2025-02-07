@@ -102,6 +102,15 @@ inline vec3 cross(const vec3 &u, const vec3 &v) {
 
 inline vec3 unit_vector(const vec3 &v) { return v / v.length(); }
 
+inline vec3 random_in_unit_desk() {
+  while (true) {
+    auto p = vec3(random_double(-1, 1), random_double(-1, 1), 0);
+    if (p.length_squared() > 1) {
+      return p;
+    }
+  }
+}
+
 inline vec3 random_unit_vector() {
   while (true) {
     auto p = vec3::random(-1, 1);
