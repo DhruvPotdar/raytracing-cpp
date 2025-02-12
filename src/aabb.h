@@ -6,21 +6,39 @@
 #include "ray.h"
 #include "vec3.h"
 class aabb {
+private:
+  void pad_to_minimums() {
+    // Adjust the AABB so that no side is narrower than some delta, padding if
+    // necessary.
+
+    double delta = 0.0001;
+    if (x.size() < delta)
+      x = x.expand(delta);
+    if (y.size() < delta)
+      y = y.expand(delta);
+    if (z.size() < delta)
+      z = z.expand(delta);
+  }
+
 public:
   interval x, y, z;
 
   aabb() {}
 
   aabb(const interval &x, const interval &y, const interval &z)
-      : x(x), y(y), z(z) {}
+      : x(x), y(y), z(z) {
+    pad_to_minimums();
+  }
 
   aabb(const point3 &a, const point3 &b) {
     // Treat a and b as exteams of bbox, so we dont need a particular min/max
     // coordinate order
 
-    x = (a[0] <= b[0]) ? interval(a[0], b[0]) : interval(b[0], a[0]);
-    y = (a[1] <= b[1]) ? interval(a[1], b[1]) : interval(b[1], a[1]);
-    z = (a[2] <= b[2]) ? interval(a[2], b[2]) : interval(b[2], a[2]);
+    x = interval(std::fmin(a[0], b[0]), std::fmax(a[0], b[0]));
+    y = interval(std::fmin(a[1], b[1]), std::fmax(a[1], b[1]));
+    z = interval(std::fmin(a[2], b[2]), std::fmax(a[2], b[2]));
+
+    pad_to_minimums();
   }
 
   aabb(const aabb &box0, const aabb &box1) {

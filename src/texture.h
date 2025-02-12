@@ -4,9 +4,9 @@
 #include "color.h"
 #include "common.h"
 #include "interval.h"
+#include "perlin.h"
 #include "rtw_stb_image.h"
 #include "vec3.h"
-#include <algorithm>
 
 class texture {
 public:
@@ -61,9 +61,10 @@ public:
   color value(double u, double v, const point3 &p) const override {
     (void)p; // remove if you use p
     // If we have no texture data, then return solid cyan as a debugging aid.
-    if (image.height() <= 0)
+    if (image.height() <= 0) {
+      std::clog << "No Texture data found" << std::endl;
       return color(0, 1, 1);
-
+    }
     // Clamp input texture coordinates to [0,1] x [1,0]
     u = interval(0, 1).clamp(u);
     v = 1.0 - interval(0, 1).clamp(v); // Flip V to image coordinates
@@ -79,5 +80,20 @@ public:
 
 private:
   rtw_image image;
+};
+
+class noise_texture : public texture {
+private:
+  perlin noise;
+  double scale;
+
+public:
+  noise_texture(double scale) : scale(scale) {}
+
+  color value(double, double, const point3 &p) const override {
+    return color(.5, .5, .5) *
+           (1 + std::sin(scale * p.z() + 10 * noise.turb(p, 7)));
+    ;
+  }
 };
 #endif

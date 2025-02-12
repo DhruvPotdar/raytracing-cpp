@@ -1,8 +1,9 @@
 #ifndef CAMERA_H
 #define CAMERA_H
 
-#include "color.h"
 #include "common.h"
+
+#include "color.h"
 #include "hittable.h"
 #include "interval.h"
 #include "material.h"
@@ -107,10 +108,10 @@ private:
     auto pixel_sample = pixel00_loc + ((j + offset.x()) * pixel_delta_v) +
                         ((i + offset.y()) * pixel_delta_u);
     auto ray_origin = (defocus_angle <= 0) ? center : defocus_disk_sample();
-    auto ray_direciton = pixel_sample - ray_origin;
+    auto ray_direction = pixel_sample - ray_origin;
     auto ray_time = random_double();
 
-    return ray(ray_origin, ray_direciton, ray_time);
+    return ray(ray_origin, ray_direction, ray_time);
   }
 
   color ray_color(const ray &r, int depth, const hittable &world) const {
@@ -141,7 +142,7 @@ private:
   }
   point3 defocus_disk_sample() const {
     // Return a random point onthe camera defocus dist
-    auto p = random_in_unit_desk();
+    auto p = random_in_unit_disk();
     return center + (p[0] * defocus_disk_u) + (p[1] * defocus_disk_v);
   }
 };
