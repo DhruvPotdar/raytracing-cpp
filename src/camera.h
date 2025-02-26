@@ -117,8 +117,9 @@ public:
       // std::clog << "End " << end_index << "\n";
       pool.enqueue([this, start_index, end_index, &world, &completed_chunks,
                     num_workers]() {
-        std::clog << "Proc";
         try {
+
+          std::clog << "Proc";
           // Process each pixel in this chunk
           for (int index = start_index; index < end_index; ++index) {
             this->generate_samples(this->camera_vec[index], index, world);
@@ -140,7 +141,7 @@ public:
     std::clog << "\rDone.                 \n";
   }
 
-  void bender(const hittable &world) {
+  void render(const hittable &world) {
     initialize();
 
     std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
@@ -181,16 +182,17 @@ public:
 
       auto ray_col = ray_color(r, max_depth, world);
       std::clog << "Processing pixel index: " << index << "\n";
-      std::clog << "Ray generated at (" << i << ", " << j << ")";
+      std::clog << "Ray generated at (" << i << ", " << j << ")\n";
       std::clog << "Ray color: (" << ray_col.x() << ", " << ray_col.y() << ", "
-                << ray_col.z() << ")\n";
+                << ray_col.z() << ")\n\n";
       accumulator += ray_col;
     }
 
     // Update shared resource with a single lock
-    std::lock_guard<std::mutex> lock(mtx);
-    pixel.pixel_color += accumulator;
-    mtx.unlock();
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      pixel.pixel_color += accumulator;
+    }
   }
 
   void zender(const hittable &world) {
@@ -237,7 +239,7 @@ public:
     std::clog << "\rDone.                 \n";
   }
 
-  void render(const hittable &world) {
+  void bender(const hittable &world) {
     initialize();
 
     // Create a pixel data vector which allows me to do 2 things

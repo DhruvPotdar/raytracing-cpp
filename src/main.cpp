@@ -105,7 +105,7 @@ void checkered_spheres() {
 
   cam.defocus_angle = 0;
 
-  cam.parallel_render(world);
+  cam.render(world);
 }
 
 void perlin_spheres() {

@@ -59,6 +59,7 @@ public:
 
     // Join all worker threads to ensure they have completed their tasks
     for (auto &thread : threads_) {
+      std::clog << "Joining Threads";
       thread.join();
     }
   }
