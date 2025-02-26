@@ -62,7 +62,7 @@ public:
     (void)p; // remove if you use p
     // If we have no texture data, then return solid cyan as a debugging aid.
     if (image.height() <= 0) {
-      std::clog << "No Texture data found" << std::endl;
+      // std::clog << "No Texture data found" << std::endl;
       return color(0, 1, 1);
     }
     // Clamp input texture coordinates to [0,1] x [1,0]

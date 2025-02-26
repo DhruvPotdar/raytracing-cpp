@@ -76,7 +76,7 @@ void bouncing_spheres() {
   cam.defocus_angle = 0.6;
   cam.focus_dist = 10;
 
-  cam.render(world);
+  cam.parallel_render(world);
 }
 
 void checkered_spheres() {
@@ -105,7 +105,7 @@ void checkered_spheres() {
 
   cam.defocus_angle = 0;
 
-  cam.render(world);
+  cam.parallel_render(world);
 }
 
 void perlin_spheres() {
@@ -415,7 +415,7 @@ void final_scene(int image_width, int samples_per_pixel, int max_depth) {
 }
 
 int main() {
-  switch (9) {
+  switch (1) {
   case 1:
     bouncing_spheres();
     break;
