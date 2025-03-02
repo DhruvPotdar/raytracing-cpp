@@ -64,7 +64,7 @@ void bouncing_spheres() {
 
   cam.aspect_ratio = 16.0 / 9.0;
   cam.image_width = 400;
-  cam.samples_per_pixel = 90;
+  cam.samples_per_pixel = 100;
   cam.max_depth = 10;
   cam.background = color(0.70, 0.80, 1.00);
 
@@ -77,6 +77,7 @@ void bouncing_spheres() {
   cam.focus_dist = 10;
 
   cam.parallel_render(world);
+  // cam.render(world);
 }
 
 void checkered_spheres() {

@@ -11,13 +11,10 @@
 #include "thread_pool.h"
 #include "vec3.h"
 
-#include <cstddef>
-#include <execution>
+#include <cassert>
 #include <future>
 #include <iostream>
-#include <iterator>
 #include <mutex>
-#include <numeric>
 #include <omp.h>
 #include <thread>
 #include <vector>
@@ -30,13 +27,17 @@ public:
   int samples_per_pixel = 10; // Count of random samples for each pixel
 
   // Calculate total number of pixels (width * height)
-  int cam_vec_length = int(image_width * image_width / aspect_ratio);
+  int cam_vec_length;
 
   struct PixelData {
     color pixel_color;
     std::vector<ray> rays;
   };
   std::vector<PixelData> camera_vec;
+
+  std::atomic<int> completed_chunks{0};
+  std::mutex completion_mutex;
+  std::condition_variable completion_cv;
 
   int max_depth = 10; // Max number of ray bounces in the scene
 
@@ -56,6 +57,7 @@ public:
     image_height = int(image_width / aspect_ratio);
     image_height = (image_height < 1) ? 1 : image_height;
     pixel_sample_scale = 1.0 / samples_per_pixel;
+    cam_vec_length = image_height * image_width;
 
     center = lookfrom;
 
@@ -90,18 +92,40 @@ public:
         focus_dist * std::tan(degrees_to_radians(defocus_angle / 2));
     defocus_disk_u = u * defocus_radius;
     defocus_disk_v = v * defocus_radius;
+  }
 
-    std::vector<PixelData> camera_vec(
-        cam_vec_length,
-        PixelData{color(), std::vector<ray>(samples_per_pixel)});
+  void generate_samples(color &pixel_color, const int index,
+                        const hittable &world) {
+    int i, j;
+    index_to_2d(index, image_width, i, j);
+
+    color accumulator; // Local accumulator to avoid frequent locking
+    for (int sample = 0; sample < samples_per_pixel; sample++) {
+      auto r = get_ray(i, j);
+
+      auto ray_col = ray_color(r, max_depth, world);
+      accumulator += ray_col;
+    }
+
+    // Update shared resource with a single lock
+    {
+      // std::lock_guard<std::mutex> lock(mtx);
+      // std::unique_lock<std::mutex> lock(mtx);
+      pixel_color += accumulator;
+    }
   }
 
   void parallel_render(const hittable &world) {
     initialize();
 
+    std::vector<PixelData> camera_vec(
+        cam_vec_length,
+        PixelData{color(), std::vector<ray>(samples_per_pixel)});
+
     int num_workers = std::thread::hardware_concurrency();
     ThreadPool pool(num_workers);
-    int chunk_size = int(cam_vec_length / num_workers);
+    int chunk_size =
+        (cam_vec_length + num_workers - 1) / num_workers; // Round up
 
     std::atomic<int> completed_chunks = 0;
 
@@ -110,27 +134,39 @@ public:
     for (int worker = 0; worker < num_workers; worker++) {
 
       int start_index = worker * chunk_size;
-      int end_index = (worker == num_workers - 1) ? cam_vec_length
-                                                  : start_index + chunk_size;
+      int end_index = std::min(start_index + chunk_size, cam_vec_length);
+
       assert(start_index >= 0 && end_index <= cam_vec_length);
-      // std::clog << "Start " << start_index << "\n";
-      // std::clog << "End " << end_index << "\n";
+
+      // std::clog << "Worker " << worker << ": Start " << start_index << ",End
+      // "
+      //           << end_index << "\n";
       pool.enqueue([this, start_index, end_index, &world, &completed_chunks,
-                    num_workers]() {
+                    num_workers, &camera_vec]() {
         try {
 
-          std::clog << "Proc";
           // Process each pixel in this chunk
           for (int index = start_index; index < end_index; ++index) {
-            this->generate_samples(this->camera_vec[index], index, world);
+            generate_samples(camera_vec[index].pixel_color, index, world);
           }
-          completed_chunks++;
-          std::clog << "\rChunks completed: " << completed_chunks << "/"
-                    << num_workers;
+
+          std::clog << "Chunk completed: " << completed_chunks.load() << "/"
+                    << num_workers << "\n\n";
+
         } catch (const std::exception &e) {
           std::cerr << "Error in thread: " << e.what() << std::endl;
         }
+
+        if (++completed_chunks == num_workers) {
+          std::lock_guard<std::mutex> lk(completion_mutex);
+          completion_cv.notify_one();
+        }
       });
+    }
+    // Synchronization barrier
+    {
+      std::unique_lock<std::mutex> lk(completion_mutex);
+      completion_cv.wait(lk, [&] { return completed_chunks == num_workers; });
     }
 
     // Write colors serially because doing that in parallel will cause problems
@@ -139,6 +175,7 @@ public:
     }
 
     std::clog << "\rDone.                 \n";
+    return;
   }
 
   void render(const hittable &world) {
@@ -171,114 +208,96 @@ public:
 
   static int two_d_to_index(int i, int j, int width) { return j * width + i; }
 
-  void generate_samples(PixelData &pixel, const int index,
-                        const hittable &world) {
-    int i, j;
-    index_to_2d(index, image_width, i, j);
-
-    color accumulator; // Local accumulator to avoid frequent locking
-    for (int sample = 0; sample < samples_per_pixel; sample++) {
-      auto r = get_ray(i, j);
-
-      auto ray_col = ray_color(r, max_depth, world);
-      std::clog << "Processing pixel index: " << index << "\n";
-      std::clog << "Ray generated at (" << i << ", " << j << ")\n";
-      std::clog << "Ray color: (" << ray_col.x() << ", " << ray_col.y() << ", "
-                << ray_col.z() << ")\n\n";
-      accumulator += ray_col;
-    }
-
-    // Update shared resource with a single lock
-    {
-      std::lock_guard<std::mutex> lock(mtx);
-      pixel.pixel_color += accumulator;
-    }
-  }
-
-  void zender(const hittable &world) {
-    // Use std::async
-    initialize();
-
-    auto cam_vec_length = image_width * image_height;
-
-    std::vector<PixelData> camera_vec(
-        cam_vec_length,
-        PixelData{color(), std::vector<ray>(samples_per_pixel)});
-
-    std::clog << "accumulator " << camera_vec[0].pixel_color.x() << " "
-              << camera_vec[0].pixel_color.y() << " "
-              << camera_vec[0].pixel_color.z() << "\n";
-    std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
-
-    for (int index = 0; index < cam_vec_length; index++) {
-
-      // if (cam_vec_length - index == 1)
-      //   break;
-      std::clog << "\r Rays remaining: " << cam_vec_length - index << "/"
-                << cam_vec_length << '\n'
-                << std::flush;
-
-      future_vec.push_back(
-          std::async(std::launch::async, [this, &camera_vec, index, &world]() {
-            this->generate_samples(camera_vec[index], index, world);
-          }));
-      // generate_samples(camera_vec[index], index, world);
-    }
-
-    //  Wait for the futures to complete
-    std::clog << "Checking for futures \n";
-    for (auto &future : future_vec) {
-      future.wait();
-    }
-    // Write the colors serially because doing that in parallel will cause
-    // problems in image rendering
-    for (const auto &pixel : camera_vec) {
-      write_color(std::cout, pixel_sample_scale * pixel.pixel_color);
-    }
-
-    std::clog << "\rDone.                 \n";
-  }
-
-  void bender(const hittable &world) {
-    initialize();
-
-    // Create a pixel data vector which allows me to do 2 things
-    // 1. Iterate over the vector of images since it is flat
-    // 2. Perform multiple ray hits as once since the samples for each ray are
-    // also vectors so they can be parallelized as well
-    std::vector<PixelData> camera_vec(
-        image_width * image_height,
-        PixelData{color(), std::vector<ray>(samples_per_pixel)});
-
-    std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
-    std::for_each(std::execution::parallel_unsequenced_policy(),
-                  camera_vec.begin(), camera_vec.end(), [&](PixelData &pixel) {
-                    // Very smart way to calculate the index it seems
-                    size_t index = &pixel - &camera_vec[0];
-                    int i = index % image_width;
-                    int j = index / image_width;
-
-                    // std::clog << "\rScanlines remaining: " << (image_height -
-                    // j)
-                    //           << ' ' << std::flush;
-                    // Process each ray in the pixel
-
-                    std::for_each(
-                        // std::execution::parallel_unsequenced_policy(),
-                        pixel.rays.begin(), pixel.rays.end(), [&](ray &r) {
-                          // Initialize or modify each ray
-                          r = get_ray(i, j);
-                          // std::lock_guard<std::mutex> lock(mtx);
-                          pixel.pixel_color += ray_color(r, max_depth, world);
-                        });
-                  });
-
-    // Write the colors serially because doing that in parallel will cause
-    // problems in image rendering
-    for (const auto &pixel : camera_vec) {
-      write_color(std::cout, pixel_sample_scale * pixel.pixel_color);
-    }
-  }
+  // void zender(const hittable &world) {
+  //   // Use std::async
+  //   initialize();
+  //
+  //   auto cam_vec_length = image_width * image_height;
+  //
+  //   std::vector<PixelData> camera_vec(
+  //       cam_vec_length,
+  //       PixelData{color(), std::vector<ray>(samples_per_pixel)});
+  //
+  //   std::clog << "accumulator " << camera_vec[0].pixel_color.x() << " "
+  //             << camera_vec[0].pixel_color.y() << " "
+  //             << camera_vec[0].pixel_color.z() << "\n";
+  //   std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
+  //
+  //   for (int index = 0; index < cam_vec_length; index++) {
+  //
+  //     // if (cam_vec_length - index == 1)
+  //     //   break;
+  //     std::clog << "\r Rays remaining: " << cam_vec_length - index << "/"
+  //               << cam_vec_length << '\n'
+  //               << std::flush;
+  //
+  //     future_vec.push_back(
+  //         std::async(std::launch::async, [this, &camera_vec, index, &world]()
+  //         {
+  //           this->generate_samples(camera_vec[index].pixel_color, index,
+  //           world);
+  //         }));
+  //     // generate_samples(camera_vec[index], index, world);
+  //   }
+  //
+  //   //  Wait for the futures to complete
+  //   std::clog << "Checking for futures \n";
+  //   for (auto &future : future_vec) {
+  //     future.wait();
+  //   }
+  //   // Write the colors serially because doing that in parallel will cause
+  //   // problems in image rendering
+  //   for (const auto &pixel : camera_vec) {
+  //     write_color(std::cout, pixel_sample_scale * pixel.pixel_color);
+  //   }
+  //
+  //   std::clog << "\rDone.                 \n";
+  // }
+  //
+  // void bender(const hittable &world) {
+  //   initialize();
+  //
+  //   // Create a pixel data vector which allows me to do 2 things
+  //   // 1. Iterate over the vector of images since it is flat
+  //   // 2. Perform multiple ray hits as once since the samples for each ray
+  //   are
+  //   // also vectors so they can be parallelized as well
+  //   std::vector<PixelData> camera_vec(
+  //       image_width * image_height,
+  //       PixelData{color(), std::vector<ray>(samples_per_pixel)});
+  //
+  //   std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
+  //   std::for_each(std::execution::parallel_unsequenced_policy(),
+  //                 camera_vec.begin(), camera_vec.end(), [&](PixelData &pixel)
+  //                 {
+  //                   // Very smart way to calculate the index it seems
+  //                   size_t index = &pixel - &camera_vec[0];
+  //                   int i = index % image_width;
+  //                   int j = index / image_width;
+  //
+  //                   // std::clog << "\rScanlines remaining: " <<
+  //                   (image_height -
+  //                   // j)
+  //                   //           << ' ' << std::flush;
+  //                   // Process each ray in the pixel
+  //
+  //                   std::for_each(
+  //                       // std::execution::parallel_unsequenced_policy(),
+  //                       pixel.rays.begin(), pixel.rays.end(), [&](ray &r) {
+  //                         // Initialize or modify each ray
+  //                         r = get_ray(i, j);
+  //                         // std::lock_guard<std::mutex> lock(mtx);
+  //                         pixel.pixel_color += ray_color(r, max_depth,
+  //                         world);
+  //                       });
+  //                 });
+  //
+  //   // Write the colors serially because doing that in parallel will cause
+  //   // problems in image rendering
+  //   for (const auto &pixel : camera_vec) {
+  //     write_color(std::cout, pixel_sample_scale * pixel.pixel_color);
+  //   }
+  // }
 
 private:
   int image_height; // Rendered image height

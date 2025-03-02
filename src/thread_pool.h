@@ -1,5 +1,4 @@
 #include <condition_variable>
-#include <cstddef>
 #include <functional>
 #include <iostream>
 #include <mutex>
@@ -31,6 +30,9 @@ public:
 
             // exit the thread if pool is stopped and there are no task
             if (stop_ && tasks_.empty()) {
+
+              std::clog << "Stopping thread " << std::this_thread::get_id()
+                        << "\n";
               return;
             }
 
@@ -49,7 +51,6 @@ public:
   ~ThreadPool() {
     {
       // Lock the queue to update the stop flag safely
-      std::clog << "Destroying Thread Pool\n";
       unique_lock<mutex> lock(queue_mutex_);
       stop_ = true;
     }
@@ -59,7 +60,6 @@ public:
 
     // Join all worker threads to ensure they have completed their tasks
     for (auto &thread : threads_) {
-      std::clog << "Joining Threads";
       thread.join();
     }
   }
